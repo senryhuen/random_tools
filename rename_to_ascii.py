@@ -1,11 +1,17 @@
 import argparse
-import string
+import os, string
 import unicodedata
 from unidecode import unidecode
 
 
 def ascii_equivalent(s: str) -> str:
-    """Returns ASCII-characters-only representation of 's'."""
+    """Returns ASCII-characters-only representation of 's'.
+
+    Non-ASCII characters are replaced with closest equivalent ASCII character.
+    May introduce forbidden characters (for filenames), use
+    `compatibility_substitution(s)` AFTER using this function to replace them.
+
+    """
     s = unicodedata.normalize("NFKD", s)
     ascii_str = unidecode(s)
 
@@ -115,6 +121,132 @@ def compatibility_substitution(
     return "".join(
         c for c in s if c in string.printable
     )  # return without non-printable characters
+
+
+def filter_nonetypes(x: list) -> list:
+    """Remove all None objects from list."""
+    return [item for item in x if item]
+
+
+def propose_changes(
+    s: str, root: str = None, substitute_type: str = None
+) -> tuple[str, str]:
+    """
+    Propose changes to make 's' contain only ASCII characters and compatible
+    with 'substitute_type'.
+
+    Args:
+        s (str): String that changes will be proposed for.
+        root (str, optional): Assumes 'root' and 's' forms a filepath if used,
+            where 's' is the basename and 'root' should be kept intact. No
+            changes will be proposed for 'root', but the return will use paths
+            formed with 'root' rather than just 's'. Defaults to None.
+        substitute_type (str, optional): Type to make 's' compatible with (as
+            a filepath). Determines which characters will be substituted.
+            Options: "windows", "unix" or "macos". Defaults to None.
+
+    Returns:
+        tuple[str, str]: tuple where the first element is the original string
+            (or path), and the second is the proposed change
+
+    """
+    ascii_s = ascii_equivalent(s)
+
+    if substitute_type:
+        ascii_s = compatibility_substitution(ascii_s, substitute_type, True)
+
+    if ascii_s == s:
+        return None
+
+    # if root, assume working with filepaths
+    if root:
+        return (os.path.join(root, s), os.path.join(root, ascii_s))
+
+    return (s, ascii_s)
+
+
+def _print_proposal(old: str, new: str, is_dir: bool = False) -> None:
+    """Prints formatted proposal for renaming file/directory 'old' to 'new'.
+
+    Args:
+        old (str): Existing path.
+        new (str): New path after renaming.
+        is_dir (bool, optional): If renaming a directory (rather than file).
+            Defaults to False.
+
+    """
+    path_type = "file"
+    if is_dir:
+        path_type = "dir"
+
+    print(f"PROPOSAL ({path_type}): '{old}'")
+    print(f"CHANGE (basename):")
+    print(f"     {os.path.basename(old)}")
+    print(f"     ->")
+    print(f"     {os.path.basename(new)}")
+    print()
+
+
+def find_problem_filenames(
+    path: str,
+    substitute_type: bool = None,
+    include_dirs: bool = True,
+    recursive: bool = True,
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """
+    Finds pathnames under 'path' (if it is a directory) that includes
+    non-ASCII or forbidden characters, and suggests new names. If 'path' is to
+    a file, then suggests rename for just that one file.
+
+    Args:
+        path (str): Path to a directory (or file).
+        substitute_type (bool, optional): Type to make pathnames compatible
+            with. Determines which characters will be substituted. Options:
+            "windows", "unix" or "macos". Defaults to None.
+        include_dirs (bool, optional): Whether to check directory names as
+            well as filenames. Defaults to True.
+        recursive (bool, optional): Whether to include subdirectories
+            (recursively). Defaults to True.
+
+    Returns:
+        tuple[list[tuple[str, str]], list[tuple[str, str]]]: Returns two
+            lists, each containing tuples where the first element is an
+            existing path, and the second element is the path after proposed
+            renaming. The first list is for filenames, and the second is for
+            directory names.
+
+    """
+    path = path.rstrip("/\\")
+
+    if not os.path.exists(path):
+        raise ValueError(f"'path' not found: '{path}'")
+
+    problem_dirs = []
+    problem_files = []
+
+    root, basename = os.path.split(path)
+
+    # if path is just a file
+    if os.path.isfile(path):
+        problem_files.append(propose_changes(basename, root, substitute_type))
+        return filter_nonetypes(problem_files), problem_dirs
+
+    # check directory at 'path', since it won't be part of walk
+    if include_dirs:
+        problem_dirs.append(propose_changes(basename, root, substitute_type))
+
+    for root, dirs, files in os.walk(path):
+        for file in files:
+            problem_files.append(propose_changes(file, root, substitute_type))
+
+        if include_dirs:
+            for dir in dirs:
+                problem_dirs.append(propose_changes(dir, root, substitute_type))
+
+        if not recursive:
+            break
+
+    return filter_nonetypes(problem_files), filter_nonetypes(problem_dirs)
 
 
 def main():
