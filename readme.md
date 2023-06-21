@@ -13,3 +13,6 @@ An assortment of random tools.
 3. ics_to_txt.py
     * Creates a human-readable text file from an .ics file
     * Usage: runs as CLI command with two positional arguments, run with '--help' flag for usage details
+4. rename_to_ascii.py
+    * Replaces non-ASCII or forbidden characters in filenames with closest valid ASCII equivalent.
+    * Usage: runs as a CLI program with a single positional argument (filepath) with some other optional parameters
