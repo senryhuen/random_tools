@@ -249,6 +249,56 @@ def find_problem_filenames(
     return filter_nonetypes(problem_files), filter_nonetypes(problem_dirs)
 
 
+def rename_file(
+    filename: str,
+    new_filename: str,
+    root_path: str = "",
+    require_confirmation: bool = True,
+    test_run: bool = False,
+) -> bool:
+    """
+    Rename 'filename' to 'new_filename'. Root path can be specified if
+    filename and new_filename are not full filepaths (eg. basenames), but have
+    the same root path.
+
+    Args:
+        filename (str): Current filename to be renamed to 'new_filename'.
+        new_filename (str): New filename to rename 'filename' to.
+        root_path (str, optional): Common root path to prepend to 'filename'
+            and 'new_filename'. Defaults to "".
+        require_confirmation (bool, optional): Whether to require confirmation
+            (input) before renaming. Defaults to True.
+
+    Returns:
+        bool: True if 'filename' renamed to 'new_filename', False otherwise
+
+    """
+    # form paths by joining root to old and new filenames
+    filename = os.path.join(root_path, filename)
+    new_filename = os.path.join(root_path, new_filename)
+
+    if not os.path.exists(filename):
+        raise ValueError(f"'filename' does not exist, path not found: '{filename}'")
+
+    _print_proposal(filename, new_filename, not os.path.isfile(filename))
+
+    if test_run:
+        return False
+
+    if require_confirmation:
+        renaming = ""
+        while renaming != "y" and renaming != "n":
+            renaming = input("PROCEED? (y/n): ").lower()
+
+        if renaming == "n":
+            print("^^^SKIPPED^^^\n")
+            return False
+
+    os.rename(filename, new_filename)
+    print("^^^RENAMED^^^\n")
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("filepath", type=str, help="filepath to a file or directory")
@@ -286,6 +336,23 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # get renaming maps
+    files_renaming_map, dirs_renaming_map = find_problem_filenames(
+        args.filepath, args.compatibility, not args.exclude_directories, not args.flat
+    )
+
+    # sort dirs_renaming_map so that deepest nested dirs are renamed first
+    dirs_renaming_map.sort(key=lambda x: x[0], reverse=True)
+    files_renaming_map += dirs_renaming_map
+
+    for old, new in files_renaming_map:
+        rename_file(
+            old,
+            new,
+            require_confirmation=not args.skip_confirmation,
+            test_run=args.no_rename,
+        )
 
 
 if __name__ == "__main__":
